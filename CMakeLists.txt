@@ -26,6 +26,7 @@ set(MODULES
 set(VENDOR
     SDL3::SDL3
     Vulkan::Vulkan
+    glm::glm
 )
 
 include_directories(
@@ -35,6 +36,7 @@ include_directories(
 )
 
 add_subdirectory(vendor/SDL3-3.4.4)
+add_subdirectory(vendor/glm)
 
 add_executable(${PROJECT_NAME})
 target_sources(${PROJECT_NAME} PRIVATE src/engine.cpp)
