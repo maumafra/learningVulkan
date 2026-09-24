@@ -32,6 +32,7 @@ set(VENDOR
 include_directories(
     BEFORE
     vendor/
+    vendor/stb/
     src/
 )
 
