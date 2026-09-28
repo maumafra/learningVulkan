@@ -1,16 +1,21 @@
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_ENABLE_EXPERIMENTAL
 #define STB_IMAGE_IMPLEMENTATION
+#define TINYOBJLOADER_IMPLEMENTATION
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <SDL3/SDL_vulkan.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/hash.hpp>
 #include <stb_image.h>
+#include <tiny_obj_loader.h>
 #include <vulkan/vulkan.h>
 #include <array>
 #include <vector>
+#include <unordered_map>
 #include <set>
 #include <string>
 #include <optional>
@@ -27,6 +32,9 @@ enum EngineAction {
     RUN,
     QUIT
 };
+
+const std::string MODEL_PATH = "resources/meshes/viking_room.obj";
+const std::string TEXTURE_PATH = "resources/textures/viking_room.png";
 
 //TODO: later change SDL_Log to Logger
 
@@ -109,6 +117,10 @@ public:
         glm::vec3 pos;
         glm::vec3 color;
         glm::vec2 texCoord;
+
+        bool operator==(const BaseVertex &other) const {
+            return pos == other.pos && color == other.color && texCoord == other.texCoord;
+        }
     };
 
     struct UniformBufferObject {
@@ -117,22 +129,22 @@ public:
         glm::mat4 proj;
     };
 
-    const std::vector<BaseVertex> vertices = {
-        {{-0.5f, -0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-        {{+0.5f, -0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-        {{+0.5f, +0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-        {{-0.5f, +0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+    //const std::vector<BaseVertex> vertices = {
+    //    {{-0.5f, -0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+    //    {{+0.5f, -0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+    //    {{+0.5f, +0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+    //    {{-0.5f, +0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
 
-        {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-        {{+0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-        {{+0.5f, +0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-        {{-0.5f, +0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
-    };
+    //    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+    //    {{+0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+    //    {{+0.5f, +0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+    //    {{-0.5f, +0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
+    //};
 
-    const std::vector<uint16_t> indices = {
-        0, 1, 2, 2, 3, 0,
-        4, 5, 6, 6, 7, 4
-    };
+    //const std::vector<uint16_t> indices = {
+    //    0, 1, 2, 2, 3, 0,
+    //    4, 5, 6, 6, 7, 4
+    //};
 };
 
 class OpenGL : public Graphics {
@@ -164,6 +176,51 @@ struct SwapChainSupportDetails {
     }
 };
 
+struct Vertex : public Graphics::BaseVertex {
+    static VkVertexInputBindingDescription getBidingDescription() {
+        VkVertexInputBindingDescription bidingDescription{};
+        bidingDescription.binding = 0;
+        bidingDescription.stride = sizeof(Vertex);
+        bidingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+        return bidingDescription;
+    }
+
+    // R..G..B..A (no of channels) 32/64 (size of data) SFLOAT/UINT/SINT (type of data)
+    // float: VK_FORMAT_R32_SFLOAT
+    // vec2: VK_FORMAT_R32G32_SFLOAT
+    // vec3: VK_FORMAT_R32G32B32_SFLOAT
+    // vec4: VK_FORMAT_R32G32B32A32_SFLOAT
+    static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescriptions(){
+        std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
+        //pos
+        attributeDescriptions[0].binding = 0;
+        attributeDescriptions[0].location = 0;
+        attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attributeDescriptions[0].offset = offsetof(Vertex, pos);
+        //color
+        attributeDescriptions[1].binding = 0;
+        attributeDescriptions[1].location = 1;
+        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attributeDescriptions[1].offset = offsetof(Vertex, color);
+        //texCoord
+        attributeDescriptions[2].binding = 0;
+        attributeDescriptions[2].location = 2;
+        attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
+
+        return attributeDescriptions;
+    }
+};
+
+template<> struct std::hash<Vertex> {
+    size_t operator()(Vertex const &vertex) const {
+        return ((std::hash<glm::vec3>()(vertex.pos) ^
+                (std::hash<glm::vec3>()(vertex.color) << 1)) >> 1) ^
+                (std::hash<glm::vec2>()(vertex.texCoord) << 1);
+    }
+};
+
 class Vulkan : public Graphics {
 public:
     ~Vulkan() {
@@ -187,6 +244,7 @@ public:
         createTextureImage();
         createTextureImageView();
         createTextureSampler();
+        loadModel();
         createVertexBuffer();
         createIndexBuffer();
         createUniformBuffers();
@@ -264,9 +322,9 @@ public:
 
         UniformBufferObject ubo{};
         //ubo.model = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        //ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 3.0f + glm::sin(time)), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(45.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        //ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 3.0f + glm::sin(time)), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
         ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width/(float)swapChainExtent.height, 0.1f, 10.0f);
         ubo.proj[1][1] *= -1; // GLM flips Y coordinate for OpenGL
 
@@ -323,43 +381,6 @@ public:
         this->framebufferResized = resized;
     }
 
-    struct Vertex : public BaseVertex {
-        static VkVertexInputBindingDescription getBidingDescription() {
-            VkVertexInputBindingDescription bidingDescription{};
-            bidingDescription.binding = 0;
-            bidingDescription.stride = sizeof(Vertex);
-            bidingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-            return bidingDescription;
-        }
-
-        // R..G..B..A (no of channels) 32/64 (size of data) SFLOAT/UINT/SINT (type of data)
-        // float: VK_FORMAT_R32_SFLOAT
-        // vec2: VK_FORMAT_R32G32_SFLOAT
-        // vec3: VK_FORMAT_R32G32B32_SFLOAT
-        // vec4: VK_FORMAT_R32G32B32A32_SFLOAT
-        static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescriptions(){
-            std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
-            //pos
-            attributeDescriptions[0].binding = 0;
-            attributeDescriptions[0].location = 0;
-            attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-            attributeDescriptions[0].offset = offsetof(Vertex, pos);
-            //color
-            attributeDescriptions[1].binding = 0;
-            attributeDescriptions[1].location = 1;
-            attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-            attributeDescriptions[1].offset = offsetof(Vertex, color);
-            //texCoord
-            attributeDescriptions[2].binding = 0;
-            attributeDescriptions[2].location = 2;
-            attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
-            attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
-
-            return attributeDescriptions;
-        }
-    };
-
 private:
     VkInstance instance;
     VkDebugUtilsMessengerEXT debugMessenger;
@@ -399,6 +420,8 @@ private:
     VkDeviceMemory depthImageMemory;
     VkImageView depthImageView;
 
+    std::vector<Vertex> vertices;
+    std::vector<uint32_t> indices;
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
     VkBuffer indexBuffer;
@@ -1219,7 +1242,8 @@ private:
     void createTextureImage() {
         int texWidth, texHeight, texChannels;
         stbi_uc *pixels = stbi_load(
-            "resources/textures/sackboy.jpg",
+            TEXTURE_PATH.c_str(),
+            //"resources/textures/sackboy.jpg",
             //"resources/textures/kiki.jpg",
             &texWidth,
             &texHeight,
@@ -1476,6 +1500,46 @@ private:
 
         if(vkCreateSampler(logicalDevice, &samplerInfo, nullptr, &textureSampler) != VK_SUCCESS) {
             SDL_LogError(SDL_LOG_CATEGORY_ERROR, "%s", "Failed to create Sampler.");
+        }
+    }
+
+    void loadModel() {
+        tinyobj::attrib_t attrib;
+        std::vector<tinyobj::shape_t> shapes;
+        std::vector<tinyobj::material_t> materials;
+        std::string warn;
+        std::string err;
+
+        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str())) {
+            SDL_LogError(SDL_LOG_CATEGORY_ERROR, "%s%s", "Failed to load Model: ", err.c_str());
+        }
+
+        std::unordered_map<Vertex, uint32_t> uniqueVertices{};
+
+        for (const auto &shape : shapes) {
+            for (const auto &index : shape.mesh.indices) {
+                Vertex vertex{};
+
+                vertex.pos = {
+                    attrib.vertices[3 * index.vertex_index + 0],
+                    attrib.vertices[3 * index.vertex_index + 1],
+                    attrib.vertices[3 * index.vertex_index + 2]
+                };
+
+                vertex.texCoord = {
+                    attrib.texcoords[2 * index.texcoord_index + 0],
+                    1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
+                };
+
+                vertex.color = {1.0f, 1.0f, 1.0f};
+
+                if (uniqueVertices.count(vertex) == 0) {
+                    uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
+                    vertices.push_back(vertex);
+                }
+
+                indices.push_back(uniqueVertices[vertex]);
+            }
         }
     }
 
@@ -1804,7 +1868,7 @@ private:
         VkDeviceSize offsets[] = {0};
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
-        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
         VkViewport viewport{};
         viewport.x = 0.0f;

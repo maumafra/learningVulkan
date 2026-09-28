@@ -33,6 +33,7 @@ include_directories(
     BEFORE
     vendor/
     vendor/stb/
+    vendor/tinyObjLoader/
     src/
 )
 
