@@ -1629,7 +1629,8 @@ private:
         samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
         // the lesser minLod better the texture
         // which means mipLodBias < 0 --> more detail
-        samplerInfo.mipLodBias = -100.0f;        
+        // and minLod > 0 --> less detail
+        samplerInfo.mipLodBias = 0.0f;
         samplerInfo.minLod = 0.0f;
         samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
         if(physicalDeviceFeatures.samplerAnisotropy) {
